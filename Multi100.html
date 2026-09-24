@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplica 100</title>
+    <!-- Incluir Tailwind CSS y Tone.js para efectos de sonido -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/tone@14.9.15/build/Tone.js"></script>
+    <style>
+        /* Fuente y estilos generales */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8; /* Fondo suave */
+        }
+        .grid-cell {
+            transition: all 0.3s ease-in-out; /* Velocidad de transición ligeramente ajustada */
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.1rem;
+            min-height: 50px;
+            user-select: none; /* Evitar selección de texto */
+        }
+        /* Estilos específicos para el estado de la celda */
+        .grid-cell.completed {
+            background-color: #10b981; /* Verde esmeralda */
+            color: #ffffff;
+            border: 2px solid #059669;
+            pointer-events: none; /* Desactivar clics en completadas */
+            transform: scale(0.95);
+        }
+        .grid-cell.failed {
+            background-color: #f87171; /* Rojo suave */
+            color: #ffffff;
+            border: 2px solid #dc2626;
+            pointer-events: none; /* Desactivar clics en fallidas */
+            transform: scale(0.95);
+        }
+        .grid-cell.current {
+            background-color: #fcd34d; /* Amarillo brillante */
+            color: #1f2937;
+            border: 3px solid #f59e0b;
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.8);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 5px rgba(245, 158, 11, 0.6); }
+            50% { box-shadow: 0 0 15px rgba(245, 158, 11, 1); }
+            100% { box-shadow: 0 0 5px rgba(245, 158, 11, 0.6); }
+        }
+        
+        /* --- ESTILOS DE BOTONES DE FACTOR (Cuadrados, Azul y Púrpura) --- */
+        .factor-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            aspect-ratio: 1 / 1; /* Hace el botón perfectamente cuadrado */
+            font-size: 1.25rem;
+            @apply font-bold rounded-lg shadow-md transition transform hover:scale-105;
+        }
+
+        /* Estilos para los botones de Factor 1 (Línea A - Azul) */
+        .factor-btn-A {
+            @apply factor-btn bg-white text-blue-700 border-2 border-blue-300 hover:bg-blue-100;
+        }
+        .factor-btn-A.selected {
+            @apply bg-blue-600 text-white border-blue-800 shadow-xl ring-4 ring-blue-300 animate-bounce; /* Añadido animate-bounce */
+            animation-duration: 0.5s; /* Duración corta para el rebote */
+        }
+
+        /* Estilos para los botones de Factor 2 (Línea B - Púrpura) */
+        .factor-btn-B {
+            @apply factor-btn bg-white text-purple-700 border-2 border-purple-300 hover:bg-purple-100;
+        }
+        .factor-btn-B.selected {
+            @apply bg-purple-600 text-white border-purple-800 shadow-xl ring-4 ring-purple-300 animate-bounce; /* Añadido animate-bounce */
+            animation-duration: 0.5s; /* Duración corta para el rebote */
+        }
+        
+        /* Estilos para la Racha */
+        #current-streak {
+            transition: all 0.3s ease;
+        }
+        .streak-high {
+            background-color: #fef3c7; /* Amarillo muy suave */
+            color: #d97706; /* Dorado oscuro */
+            animation: streak-glow 1s infinite alternate;
+        }
+        @keyframes streak-glow {
+            0% { box-shadow: 0 0 5px rgba(251, 191, 36, 0.5); }
+            100% { box-shadow: 0 0 15px rgba(251, 191, 36, 0.8); }
+        }
+
+
+        /* Contenedor para el confeti */
+        #confetti-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Asegura que no bloquee los clics */
+            overflow: hidden;
+            z-index: 50;
+        }
+        .confetti {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: #fcd34d; /* Amarillo */
+            border-radius: 50%;
+            opacity: 0;
+            animation: confetti-fall 3s forwards;
+        }
+        @keyframes confetti-fall {
+            0% { opacity: 1; transform: translateY(0) rotate(0deg); }
+            100% { opacity: 0; transform: translateY(100vh) rotate(720deg); }
+        }
+
+    </style>
+</head>
+<body class="p-4">
+    <div id="app" class="max-w-7xl mx-auto bg-white p-6 md:p-10 rounded-3xl shadow-2xl relative">
+        
+        <!-- Contenedor para el confeti -->
+        <div id="confetti-container"></div>
+
+        <header class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-extrabold text-gray-800 mb-2">Multiplica 100 🧠</h1>
+            <p class="text-xl text-gray-600">Completa la tabla encontrando los factores del 1 al 10. Tienes 3 intentos por número.</p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            
+            <!-- Columna de control y factores -->
+            <div class="md:col-span-1 p-4 bg-blue-50 rounded-2xl shadow-inner flex flex-col space-y-6 order-2 md:order-1">
+                
+                <div id="target-info" class="text-center p-4 bg-blue-100 rounded-xl shadow-lg">
+                    <p class="text-xl text-blue-800 font-semibold">Número a completar:</p>
+                    <p id="current-number-display" class="text-6xl font-black text-blue-700 mt-2">--</p>
+                </div>
+
+                <!-- Contador de Fallos -->
+                <div class="text-center p-3 bg-red-100 rounded-xl shadow-md">
+                    <p class="text-lg font-bold text-red-700">
+                        Intentos Restantes: <span id="remaining-attempts" class="text-red-500 text-2xl">3</span>
+                    </p>
+                </div>
+
+                <!-- Racha de Aciertos (NUEVO) -->
+                <div id="streak-box" class="text-center p-3 bg-white rounded-xl shadow-md border-2 border-transparent">
+                    <p class="text-lg font-bold text-gray-700">
+                        Racha de Aciertos: <span id="current-streak" class="text-yellow-600 text-2xl">0</span>
+                    </p>
+                </div>
+
+                <div class="flex-grow flex flex-col justify-center space-y-4">
+                    <h2 class="text-2xl font-bold text-gray-700 border-b pb-2">Selecciona 2 Factores (1-10)</h2>
+                    <p class="text-sm text-gray-500 font-semibold">Usa las teclas 1-0 para seleccionar.</p>
+                    
+                    <div id="factor-selection" class="space-y-4">
+                        <p class="text-sm font-semibold text-blue-700">Factor 1 (Azul)</p>
+                        <!-- Factores 1-10 (Línea A - Azul) -->
+                        <div id="factors-A" class="grid grid-cols-5 gap-2">
+                            <!-- Los botones Factor 1 se generarán con JS (Azul) -->
+                        </div>
+                        
+                        <p class="text-sm font-semibold text-purple-700 pt-2">Factor 2 (Púrpura)</p>
+                        <!-- Factores 1-10 (Línea B - Púrpura) -->
+                        <div id="factors-B" class="grid grid-cols-5 gap-2">
+                            <!-- Los botones Factor 2 se generarán con JS (Púrpura) -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Controles -->
+                <div class="space-y-3 pt-4 border-t">
+                    <div id="selected-factors" class="text-center text-xl font-bold text-gray-700">
+                        Factor 1: <span id="factor-a-display" class="text-blue-600">?</span> x 
+                        Factor 2: <span id="factor-b-display" class="text-purple-600">?</span>
+                    </div>
+
+                    <button id="check-btn" class="w-full bg-green-500 text-white text-2xl font-bold py-3 rounded-xl hover:bg-green-600 transition duration-200 shadow-lg" disabled>
+                        Comprobar (ENTER)
+                    </button>
+                    
+                    <!-- Botón de Pista -->
+                    <button id="hint-btn" class="w-full bg-yellow-500 text-gray-800 text-xl font-bold py-3 rounded-xl hover:bg-yellow-600 transition duration-200 shadow-lg">
+                        💡 Pista (Revelar 1 Factor)
+                    </button>
+
+                    <button id="impossible-btn" class="w-full bg-red-500 text-white text-xl font-bold py-3 rounded-xl hover:bg-red-600 transition duration-200 shadow-lg">
+                        ¡Imposible! (Fuera de la tabla 10x10)
+                    </button>
+                    
+                    <!-- Botones de Control (Sonido y Reinicio) -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <button id="toggle-sound-btn" class="bg-indigo-500 text-white text-xl font-bold py-3 rounded-xl hover:bg-indigo-600 transition duration-200 shadow-md">
+                            🔊 Sonido: ON
+                        </button>
+                        <button id="restart-btn" class="bg-gray-300 text-gray-800 text-xl font-bold py-3 rounded-xl hover:bg-gray-400 transition duration-200 shadow-md">
+                            🔄 Reiniciar
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Columna del Tablero de Números -->
+            <div class="md:col-span-2 order-1 md:order-2">
+                <div id="score-status" class="mb-4 p-3 bg-yellow-100 rounded-xl text-center shadow-md">
+                    <p class="text-2xl font-bold text-gray-700">
+                        Completados: <span id="completed-count" class="text-green-600">0</span> / 100
+                    </p>
+                </div>
+                
+                <div id="message-area" class="h-10 text-center font-semibold mb-4 text-lg"></div>
+
+                <div id="number-grid" class="grid grid-cols-10 gap-1 md:gap-2 border-4 border-gray-300 p-2 rounded-xl bg-gray-100 shadow-xl">
+                    <!-- Las celdas del 1 al 100 se generarán con JS -->
+                </div>
+            </div>
+
+        </div>
+        
+        <!-- --- MODAL DE AVISO (Para Reiniciar y Fin del Juego) --- -->
+        <div id="game-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 transition-opacity duration-300 opacity-0" aria-modal="true" role="dialog">
+            <div class="bg-white p-8 rounded-xl shadow-2xl max-w-md w-full transform scale-95 transition-transform duration-300">
+                <h2 id="modal-title" class="text-3xl font-bold text-gray-800 mb-4 text-center">Aviso</h2>
+                <div id="modal-content" class="text-lg text-gray-600 mb-6 text-center">
+                    <!-- Contenido dinámico -->
+                </div>
+                <div id="modal-actions" class="flex justify-center space-x-4">
+                    <!-- Botones dinámicos -->
+                </div>
+            </div>
+        </div>
+        <!-- -------------------------------------------------------- -->
+
+    </div>
+
+    <script>
+        // Copyright © JC+Gemini
+        
+        // Definición de variables globales
+        // Estado: 0: pendiente, 1: completado/correcto, 2: completado/fallido
+        let gameStatus = []; 
+        let currentTarget = null;
+        let selectedFactorA = null;
+        let selectedFactorB = null;
+        let currentRoundFailures = 0; // Fallos en el número actual
+        let hintUsed = false; // Bandera para la pista en el número actual
+        let isSoundEnabled = true; 
+        let nextFactorTarget = 'A'; 
+        let currentStreak = 0; // NUEVO: Contador de racha
+        const MAX_FAILURES = 3;
+
+        // Referencias a elementos del DOM
+        const gridContainer = document.getElementById('number-grid');
+        const factorsAContainer = document.getElementById('factors-A');
+        const factorsBContainer = document.getElementById('factors-B');
+        const currentNumberDisplay = document.getElementById('current-number-display');
+        const completedCountDisplay = document.getElementById('completed-count');
+        const factorADisplay = document.getElementById('factor-a-display');
+        const factorBDisplay = document.getElementById('factor-b-display');
+        const checkBtn = document.getElementById('check-btn');
+        const impossibleBtn = document.getElementById('impossible-btn');
+        const hintBtn = document.getElementById('hint-btn'); 
+        const messageArea = document.getElementById('message-area');
+        const restartBtn = document.getElementById('restart-btn');
+        const toggleSoundBtn = document.getElementById('toggle-sound-btn');
+        const remainingAttemptsDisplay = document.getElementById('remaining-attempts');
+        const confettiContainer = document.getElementById('confetti-container');
+        const streakDisplay = document.getElementById('current-streak'); // NUEVO
+        const streakBox = document.getElementById('streak-box'); // NUEVO
+        
+        // Referencias del Modal
+        const gameModal = document.getElementById('game-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalContent = document.getElementById('modal-content');
+        const modalActions = document.getElementById('modal-actions');
+
+        // Inicializar el sintetizador para el sonido de victoria
+        const synth = new Tone.Synth({
+            oscillator: { type: "sine" },
+            envelope: {
+                attack: 0.01,
+                decay: 0.2,
+                sustain: 0.1,
+                release: 0.5
+            }
+        }).toDestination();
+        
+        // Inicializar el sintetizador para el sonido de FALLO (Ruido/Buzz)
+        const noiseSynth = new Tone.NoiseSynth({
+            noise: { type: "white" },
+            envelope: { 
+                attack: 0.01, 
+                decay: 0.1, 
+                sustain: 0, 
+                release: 0.1 
+            }
+        }).toDestination();
+
+        // Inicializar el sintetizador para el sonido de PISTA (Chime suave)
+        const hintSynth = new Tone.Synth({
+            oscillator: { type: "triangle" },
+            envelope: { 
+                attack: 0.005, 
+                decay: 0.2, 
+                sustain: 0, 
+                release: 0.2 
+            }
+        }).toDestination();
+
+
+        // --- Funciones del Modal ---
+
+        /**
+         * Muestra la ventana modal con contenido y acciones específicos.
+         * @param {string} title Título del modal.
+         * @param {string} content Contenido HTML del modal.
+         * @param {Array<Object>} actions Lista de botones para el modal, ej: [{text: 'Sí', class: '...', handler: function}]
+         */
+        function showModal(title, content, actions = []) {
+            modalTitle.textContent = title;
+            modalContent.innerHTML = content;
+            modalActions.innerHTML = '';
+
+            actions.forEach(action => {
+                const btn = document.createElement('button');
+                btn.textContent = action.text;
+                btn.className = action.class || 'px-6 py-2 rounded-lg font-semibold transition';
+                btn.onclick = () => {
+                    hideModal();
+                    if (action.handler) {
+                        action.handler();
+                    }
+                };
+                modalActions.appendChild(btn);
+            });
+            
+            // Forzar la visibilidad y transición
+            gameModal.classList.remove('hidden');
+            setTimeout(() => {
+                gameModal.classList.remove('opacity-0');
+                gameModal.querySelector('div').classList.remove('scale-95');
+            }, 10);
+        }
+
+        /**
+         * Oculta la ventana modal.
+         */
+        function hideModal() {
+            gameModal.classList.add('opacity-0');
+            gameModal.querySelector('div').classList.add('scale-95');
+            setTimeout(() => {
+                gameModal.classList.add('hidden');
+            }, 300);
+        }
+
+
+        // --- Funciones de Efectos y Sonido ---
+
+        /**
+         * Reproduce un sonido de victoria.
+         */
+        function playSuccessSound() {
+            if (!isSoundEnabled) return;
+            // Tocar una nota simple de victoria
+            synth.triggerAttackRelease("C5", "8n");
+            synth.triggerAttackRelease("E5", "8n", "+0.1");
+            synth.triggerAttackRelease("G5", "4n", "+0.2");
+        }
+        
+        /**
+         * Reproduce un sonido de fallo o error.
+         */
+        function playFailureSound() {
+            if (!isSoundEnabled) return;
+            // Tocar un ruido corto
+            noiseSynth.triggerAttackRelease("4n"); 
+        }
+
+        /**
+         * Reproduce un sonido de pista o ayuda.
+         */
+        function playHintSound() {
+            if (!isSoundEnabled) return;
+            // Simple ascendente
+            hintSynth.triggerAttackRelease("F4", "16n");
+            hintSynth.triggerAttackRelease("A4", "16n", "+0.1");
+        }
+
+        /**
+         * Alterna el estado del sonido (ON/OFF).
+         */
+        function toggleSound() {
+            isSoundEnabled = !isSoundEnabled;
+            
+            if (isSoundEnabled) {
+                // Reactivar el audio global de Tone.js
+                Tone.Master.mute = false;
+                toggleSoundBtn.textContent = '🔊 Sonido: ON';
+                toggleSoundBtn.classList.replace('bg-gray-500', 'bg-indigo-500');
+            } else {
+                // Silenciar el audio global de Tone.js
+                Tone.Master.mute = true;
+                toggleSoundBtn.textContent = '🔇 Sonido: OFF';
+                toggleSoundBtn.classList.replace('bg-indigo-500', 'bg-gray-500');
+            }
+        }
+
+
+        /**
+         * Crea y anima confeti de estrellas.
+         */
+        function launchConfetti() {
+            const colors = ['#fcd34d', '#3b82f6', '#9333ea', '#10b981']; // Amarillo, Azul, Púrpura, Verde
+            const count = 50;
+            const containerWidth = confettiContainer.offsetWidth;
+            const containerHeight = confettiContainer.offsetHeight;
+
+            for (let i = 0; i < count; i++) {
+                const confetti = document.createElement('div');
+                confetti.className = 'confetti';
+                
+                // Configurar el color y la posición inicial
+                confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                confetti.style.left = `${Math.random() * containerWidth}px`;
+                confetti.style.top = `${-20}px`; // Empezar fuera de la vista superior
+
+                // Añadir propiedades de animación aleatorias
+                const duration = 2 + Math.random() * 2; // Duración de 2s a 4s
+                const delay = Math.random() * 0.5; // Pequeño retraso
+                const rotation = Math.random() * 1080; 
+
+                confetti.style.animationDuration = `${duration}s`;
+                confetti.style.animationDelay = `${delay}s`;
+                confetti.style.animationName = 'confetti-fall';
+                
+                // Añadir un poco de desplazamiento lateral (swing)
+                confetti.style.setProperty('--swing-x', `${(Math.random() - 0.5) * 500}px`);
+
+                confettiContainer.appendChild(confetti);
+
+                // Limpiar el confeti después de que termine la animación
+                setTimeout(() => {
+                    confettiContainer.removeChild(confetti);
+                }, (duration + delay) * 1000);
+            }
+        }
+
+
+        // --- Funciones de Utilidad ---
+
+        /**
+         * Actualiza el indicador visual de la racha.
+         */
+        function updateStreakDisplay() {
+            streakDisplay.textContent = currentStreak;
+            if (currentStreak >= 5) {
+                streakBox.classList.add('streak-high');
+                streakBox.classList.add('bg-yellow-100');
+                streakBox.classList.remove('bg-white');
+            } else {
+                streakBox.classList.remove('streak-high');
+                streakBox.classList.remove('bg-yellow-100');
+                streakBox.classList.add('bg-white');
+            }
+        }
+
+
+        /**
+         * Verifica si un número N puede ser formado por el producto de dos factores (1-10).
+         * @param {number} N El número objetivo.
+         * @returns {boolean} True si es posible, False si es imposible con factores 1-10.
+         */
+        function isPossible(N) {
+            if (N < 1 || N > 100) return false;
+            for (let a = 1; a <= 10; a++) {
+                if (N % a === 0) { // 'a' es un factor de N
+                    const b = N / a;
+                    if (b >= 1 && b <= 10) { // El otro factor 'b' también está en el rango 1-10
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /**
+         * Busca un par válido de factores (1-10) para un número N.
+         * @param {number} N El número objetivo.
+         * @returns {Array<number> | null} Un array [factor1, factor2] o null si es imposible.
+         */
+        function findAnyValidFactors(N) {
+            for (let a = 1; a <= 10; a++) {
+                if (N % a === 0) {
+                    const b = N / a;
+                    if (b >= 1 && b <= 10) {
+                        return [a, b];
+                    }
+                }
+            }
+            return null;
+        }
+
+        /**
+         * Resetea el estado de los intentos y la pista para la nueva ronda.
+         */
+        function resetRoundState() {
+            currentRoundFailures = 0;
+            hintUsed = false;
+            remainingAttemptsDisplay.textContent = MAX_FAILURES;
+            hintBtn.disabled = false;
+            hintBtn.classList.remove('opacity-50');
+        }
+
+        /**
+         * Muestra el modal de Fin del Juego.
+         */
+        function showGameCompletedModal() {
+            const completed = updateCompletedCount();
+            const failed = gameStatus.filter(s => s === 2).length;
+            const message = `
+                <p class="text-green-700 text-4xl mb-4 font-extrabold">¡Misión Cumplida!</p>
+                <p>Completaste ${completed} de 100 números.</p>
+                <p>Números que te fallaron: ${failed}.</p>
+                <p class="mt-4 font-semibold">¿Quieres empezar un juego nuevo?</p>
+            `;
+            
+            showModal(
+                '🎉 Juego Finalizado 🎉',
+                message,
+                [
+                    { text: 'Jugar de Nuevo', class: 'bg-blue-500 text-white hover:bg-blue-600 px-6 py-3', handler: startNewGame },
+                    { text: 'Cerrar', class: 'bg-gray-300 text-gray-800 hover:bg-gray-400 px-6 py-3', handler: () => {} }
+                ]
+            );
+        }
+
+        /**
+         * Obtiene un número objetivo pendiente al azar y lo resalta.
+         */
+        function getNewTarget() {
+            const pendingNumbers = gameStatus
+                .map((status, index) => ({ number: index + 1, status }))
+                .filter(item => item.status === 0);
+
+            if (pendingNumbers.length === 0) {
+                // El juego ha terminado
+                showGameCompletedModal(); // Usar modal para fin de juego
+                currentNumberDisplay.textContent = '100';
+                currentTarget = null;
+                checkBtn.disabled = true;
+                impossibleBtn.disabled = true;
+                hintBtn.disabled = true;
+                messageArea.textContent = 'Juego finalizado. ¡Presiona "Jugar de Nuevo"!';
+                return;
+            }
+
+            if (currentTarget) {
+                const prevCell = document.getElementById(`cell-${currentTarget}`);
+                if (prevCell && prevCell.classList.contains('current')) {
+                    prevCell.classList.remove('current');
+                }
+            }
+            
+            const randomIndex = Math.floor(Math.random() * pendingNumbers.length);
+            const newTarget = pendingNumbers[randomIndex].number;
+
+            currentTarget = newTarget;
+            const newCell = document.getElementById(`cell-${currentTarget}`);
+            if (newCell) {
+                newCell.classList.add('current');
+            }
+
+            currentNumberDisplay.textContent = currentTarget;
+            resetSelection();
+            resetRoundState(); 
+            messageArea.textContent = '';
+        }
+
+        /**
+         * Reinicia la selección de factores y la interfaz de factores.
+         */
+        function resetSelection() {
+            selectedFactorA = null;
+            selectedFactorB = null;
+            nextFactorTarget = 'A'; // Resetear el objetivo de la tecla
+
+            document.querySelectorAll('.factor-btn-A, .factor-btn-B').forEach(btn => {
+                // Removemos la clase de animación de rebote al resetear la selección
+                btn.classList.remove('selected', 'animate-bounce'); 
+            });
+
+            factorADisplay.textContent = '?';
+            factorBDisplay.textContent = '?';
+            checkBtn.disabled = true;
+        }
+
+        /**
+         * Marca el número actual como completado (o fallido) y avanza al siguiente.
+         * @param {number} status 1 para Correcto, 2 para Fallido (revelado).
+         * @param {string} msg El mensaje a mostrar.
+         */
+        function markAndAdvance(status, msg) {
+            const cell = document.getElementById(`cell-${currentTarget}`);
+            
+            if (cell) {
+                cell.classList.remove('current');
+                // Esto provoca una transición más suave al cambiar de estado
+                cell.style.transition = 'transform 0.1s ease-out, background-color 0.5s ease';
+                cell.classList.add(status === 1 ? 'completed' : 'failed');
+            }
+
+            gameStatus[currentTarget - 1] = status; 
+            messageArea.innerHTML = msg;
+            updateCompletedCount();
+            
+            // Si fue correcto (1), lanza efectos de victoria
+            if (status === 1) {
+                currentStreak++; // Incrementar racha
+                playSuccessSound();
+                launchConfetti();
+            } else {
+                currentStreak = 0; // Resetear racha si hay fallo
+            }
+
+            updateStreakDisplay();
+            
+            // Volver a la transición normal (si aplica) después de la animación
+            setTimeout(() => {
+                if (cell) cell.style.transition = 'all 0.3s ease-in-out';
+            }, 500);
+
+
+            if (gameStatus.filter(s => s === 0).length > 0) {
+                setTimeout(getNewTarget, 1500);
+            } else {
+                getNewTarget(); // Esto dispara el modal de fin de juego si no hay pendientes
+            }
+        }
+
+        /**
+         * Actualiza el contador de números completados.
+         */
+        function updateCompletedCount() {
+            const completedCount = gameStatus.filter(status => status > 0).length;
+            completedCountDisplay.textContent = completedCount;
+            return completedCount;
+        }
+
+        // --- Funciones de Manejo de Eventos ---
+
+        /**
+         * Maneja la selección de factores.
+         */
+        function handleFactorSelect(factor, line) {
+            // Eliminar la animación de rebote de los botones antes de la nueva selección
+            document.querySelectorAll('.factor-btn-A, .factor-btn-B').forEach(btn => {
+                btn.classList.remove('animate-bounce'); 
+            });
+
+
+            if (line === 'A') {
+                selectedFactorA = factor;
+                factorADisplay.textContent = factor;
+            } else {
+                selectedFactorB = factor;
+                factorBDisplay.textContent = factor;
+            }
+
+            const currentLineClass = line === 'A' ? '.factor-btn-A' : '.factor-btn-B';
+            const container = line === 'A' ? factorsAContainer : factorsBContainer;
+            
+            // Desseleccionar todos los botones en la línea actual
+            container.querySelectorAll(currentLineClass).forEach(btn => {
+                btn.classList.remove('selected');
+            });
+
+            // Seleccionar el botón que coincide con el factor y añadir el rebote
+            const pressedBtn = document.querySelector(`button[data-line="${line}"][data-factor="${factor}"]`);
+            if (pressedBtn) {
+                pressedBtn.classList.add('selected');
+                pressedBtn.classList.add('animate-bounce');
+                // Quitar el rebote después de un ciclo corto
+                setTimeout(() => pressedBtn.classList.remove('animate-bounce'), 500); 
+            }
+
+            checkBtn.disabled = !(selectedFactorA !== null && selectedFactorB !== null);
+        }
+
+        /**
+         * Maneja la lógica de comprobación de la multiplicación y los fallos.
+         */
+        function handleCheck() {
+            if (currentTarget === null || selectedFactorA === null || selectedFactorB === null) return;
+
+            const result = selectedFactorA * selectedFactorB;
+
+            if (result === currentTarget) {
+                // Respuesta correcta
+                const msg = `<span class="text-green-600 font-bold">¡Correcto! ${selectedFactorA} x ${selectedFactorB} = ${currentTarget}.</span>`;
+                markAndAdvance(1, msg);
+
+            } else {
+                // Respuesta incorrecta
+                playFailureSound(); // Sonido de fallo
+                currentRoundFailures++;
+                remainingAttemptsDisplay.textContent = MAX_FAILURES - currentRoundFailures;
+                
+                if (currentRoundFailures >= MAX_FAILURES) {
+                    const correctFactors = findAnyValidFactors(currentTarget);
+                    let msg = `<span class="text-red-600 font-bold">❌ 3 fallos. ¡Siguiente número!</span>`;
+
+                    if (correctFactors) {
+                         msg = `<span class="text-red-600 font-bold">❌ 3 fallos. La respuesta era: ${correctFactors[0]} x ${correctFactors[1]} = ${currentTarget}.</span>`;
+                    }
+                    markAndAdvance(2, msg);
+
+                } else {
+                    currentStreak = 0; // Resetear racha por fallo
+                    updateStreakDisplay();
+                    messageArea.innerHTML = `<span class="text-red-600 font-bold">¡Incorrecto! ${selectedFactorA} x ${selectedFactorB} es ${result}, no ${currentTarget}. Te quedan ${MAX_FAILURES - currentRoundFailures} intentos.</span>`;
+                }
+            }
+            resetSelection();
+        }
+
+        /**
+         * Maneja la lógica del botón "Imposible".
+         */
+        function handleImpossible() {
+            if (currentTarget === null) return;
+
+            const isTargetPossible = isPossible(currentTarget);
+
+            if (!isTargetPossible) {
+                // Correcto: Es imposible
+                const msg = `<span class="text-green-600 font-bold">¡Correcto! ${currentTarget} es imposible de formar con factores del 1 al 10.</span>`;
+                markAndAdvance(1, msg); // Lanza efectos de victoria
+
+            } else {
+                // Incorrecto: Sí es posible
+                playFailureSound(); // Sonido de fallo
+                currentRoundFailures++;
+                remainingAttemptsDisplay.textContent = MAX_FAILURES - currentRoundFailures;
+                
+                if (currentRoundFailures >= MAX_FAILURES) {
+                    const correctFactors = findAnyValidFactors(currentTarget);
+                    const msg = `<span class="text-red-600 font-bold">❌ 3 fallos. La respuesta era: ${correctFactors[0]} x ${correctFactors[1]} = ${currentTarget}.</span>`;
+                    markAndAdvance(2, msg);
+                } else {
+                    currentStreak = 0; // Resetear racha por fallo
+                    updateStreakDisplay();
+                    messageArea.innerHTML = `<span class="text-red-600 font-bold">¡Incorrecto! ${currentTarget} SÍ puede formarse. Te quedan ${MAX_FAILURES - currentRoundFailures} intentos.</span>`;
+                }
+            }
+            resetSelection();
+        }
+
+        /**
+         * Maneja el botón de Pista, revelando un factor.
+         */
+        function handleHint() {
+            if (currentTarget === null || hintUsed) return;
+            
+            const factors = findAnyValidFactors(currentTarget);
+
+            if (!factors) {
+                messageArea.innerHTML = '<span class="text-orange-500 font-bold">Este número es imposible. ¡Usa el botón "Imposible"!</span>';
+                hintBtn.disabled = true;
+                hintBtn.classList.add('opacity-50');
+                return;
+            }
+            
+            playHintSound(); // Sonido de pista
+
+            // Seleccionar el factor A (el azul) para revelar, para consistencia visual
+            const factorToReveal = factors[0];
+            
+            selectedFactorA = factorToReveal;
+            factorADisplay.textContent = factorToReveal;
+            
+            const btnA = document.querySelector(`.factor-btn-A[data-factor="${factorToReveal}"]`);
+            if (btnA) {
+                btnA.classList.add('selected');
+                // Quitar animación de rebote si se aplica por la pista
+                btnA.classList.remove('animate-bounce'); 
+            }
+            
+            // Forzar que el próximo objetivo de la tecla sea el Factor B
+            nextFactorTarget = 'B'; 
+
+            hintUsed = true;
+            hintBtn.disabled = true;
+            hintBtn.classList.add('opacity-50');
+            
+            messageArea.innerHTML = `<span class="text-yellow-600 font-bold">¡Pista usada! Factor 1 (Azul) es ${factorToReveal}. ¡Ahora encuentra el Factor 2!</span>`;
+            
+            selectedFactorB = null;
+            document.querySelectorAll('.factor-btn-B').forEach(btn => btn.classList.remove('selected', 'animate-bounce'));
+            checkBtn.disabled = true;
+        }
+
+
+        // --- Manejo de Teclado ---
+        
+        /**
+         * Maneja la entrada de teclado para la selección de factores y la comprobación.
+         */
+        function handleKeyboardInput(event) {
+            // Ignorar entrada si el modal está abierto o currentTarget es null (juego en pausa/terminado)
+            if (!gameModal.classList.contains('hidden') || currentTarget === null) {
+                return;
+            }
+
+            const key = event.key;
+            
+            // 1. Manejar Teclas Numéricas (0-9)
+            if (key >= '0' && key <= '9') {
+                event.preventDefault(); // Prevenir acciones predeterminadas (como el scroll)
+                let factor = parseInt(key, 10);
+                
+                // Mapear 0 a 10
+                if (factor === 0) {
+                    factor = 10;
+                }
+
+                // Lógica de selección alterna:
+                if (nextFactorTarget === 'A') {
+                    handleFactorSelect(factor, 'A');
+                    nextFactorTarget = 'B'; // Siguiente tecla selecciona Factor B
+                } else {
+                    handleFactorSelect(factor, 'B');
+                    nextFactorTarget = 'A'; // Siguiente tecla selecciona Factor A (bucle)
+                }
+            }
+
+            // 2. Manejar Tecla Enter (Intro) para Comprobar
+            if (key === 'Enter' && !checkBtn.disabled) {
+                event.preventDefault();
+                handleCheck();
+            }
+        }
+
+
+        // --- Inicialización y Setup ---
+        
+        /**
+         * Lógica de reinicio: Inicializa el estado del juego y el tablero.
+         */
+        function initializeGame() {
+            // Limpiar la interfaz del tablero
+            gridContainer.innerHTML = ''; 
+            for (let i = 1; i <= 100; i++) {
+                const cell = document.createElement('div');
+                cell.id = `cell-${i}`;
+                cell.className = 'grid-cell bg-gray-200 text-gray-800 rounded-md shadow-inner hover:bg-gray-300';
+                cell.textContent = i;
+                cell.setAttribute('data-number', i);
+                gridContainer.appendChild(cell);
+            }
+
+            // Reiniciar el estado del juego (solo los números pendientes)
+            gameStatus = Array(100).fill(0);
+            updateCompletedCount();
+            
+            // Restablecer el estado de la ronda
+            currentTarget = null;
+            currentNumberDisplay.textContent = '--';
+            messageArea.textContent = '';
+            checkBtn.disabled = true;
+            impossibleBtn.disabled = false;
+            hintBtn.disabled = false;
+
+            // Resetear Racha
+            currentStreak = 0;
+            updateStreakDisplay();
+
+            resetSelection();
+            resetRoundState(); 
+        }
+
+        /**
+         * Función que lanza el juego (usada al inicio y al reiniciar).
+         */
+        function startNewGame() {
+            initializeGame();
+            getNewTarget();
+            messageArea.innerHTML = '<span class="text-gray-600 font-bold">🔄 Juego Reiniciado. ¡A por el siguiente!</span>';
+        }
+
+        /**
+         * Muestra el modal de confirmación de reinicio.
+         */
+        function confirmRestart() {
+            showModal(
+                'Confirmar Reinicio',
+                '<p>¿Estás seguro de que quieres reiniciar el juego? Perderás todo tu progreso actual.</p>',
+                [
+                    { text: 'Sí, Reiniciar', class: 'bg-red-500 text-white hover:bg-red-600 px-6 py-3', handler: startNewGame },
+                    { text: 'Cancelar', class: 'bg-gray-300 text-gray-800 hover:bg-gray-400 px-6 py-3', handler: () => {} }
+                ]
+            );
+        }
+
+        // Función de inicio que ejecuta todo
+        function startGameSetup() {
+            // 1. Renderizar los botones de factores (solo una vez)
+            factorsAContainer.innerHTML = '';
+            factorsBContainer.innerHTML = '';
+            for (let i = 1; i <= 10; i++) {
+                // Factor Linea A (Azul)
+                const btnA = document.createElement('button');
+                btnA.className = 'factor-btn-A'; 
+                btnA.textContent = i;
+                btnA.setAttribute('data-line', 'A');
+                btnA.setAttribute('data-factor', i);
+                btnA.addEventListener('click', () => handleFactorSelect(i, 'A'));
+                factorsAContainer.appendChild(btnA);
+
+                // Factor Linea B (Púrpura)
+                const btnB = document.createElement('button');
+                btnB.className = 'factor-btn-B'; 
+                btnB.textContent = i;
+                btnB.setAttribute('data-line', 'B');
+                btnB.setAttribute('data-factor', i);
+                btnB.addEventListener('click', () => handleFactorSelect(i, 'B'));
+                factorsBContainer.appendChild(btnB);
+            }
+
+            // 2. Configurar listeners de control
+            checkBtn.onclick = handleCheck;
+            impossibleBtn.onclick = handleImpossible;
+            hintBtn.onclick = handleHint;
+            toggleSoundBtn.onclick = toggleSound;
+            
+            // Reemplazar la función directa de Reinicio con la confirmación modal
+            restartBtn.onclick = confirmRestart; 
+            
+            // 3. Iniciar el contexto de audio
+            document.documentElement.addEventListener('click', () => {
+                if (Tone.context.state !== 'running') {
+                    Tone.context.resume();
+                }
+            }, { once: true });
+
+            // 4. Configurar listener de teclado (NUEVO)
+            document.addEventListener('keydown', handleKeyboardInput);
+
+
+            // 5. Inicializar y empezar la primera ronda
+            startNewGame();
+        }
+
+        // Iniciar el juego al cargar la página
+        window.onload = startGameSetup;
+
+    </script>
+</body>
+</html>
